@@ -69,3 +69,5 @@ dist/
 # Misc
 *.tmp
 *.bak
+*.claude
+.claude/

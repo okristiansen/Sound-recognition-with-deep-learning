@@ -1,4 +1,4 @@
-from ml_project.models.dataset2 import ESC50Dataset2
+from dataset import ESC50Dataset2
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -23,8 +23,8 @@ import torchvision.models as models
 #     visualize_spectogram()
 
 
-train_dataset = ESC50Dataset2(csv_path="meta/esc50.csv", audio_dir="data", folds=[1, 2, 3, 4], augment=True)
-test_dataset = ESC50Dataset2(csv_path="meta/esc50.csv", audio_dir="data", folds=[5], augment=False)
+train_dataset = ESC50Dataset2(csv_path="data/meta/esc50.csv", audio_dir="data/audio", folds=[1, 2, 3, 4], augment=True)
+test_dataset = ESC50Dataset2(csv_path="data/meta/esc50.csv", audio_dir="data/audio", folds=[5], augment=False)
 
 train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
 test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
