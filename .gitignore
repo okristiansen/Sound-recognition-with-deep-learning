@@ -1,0 +1,71 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*.so
+
+# Virtual environments
+venv/
+.env/
+.venv/
+env/
+ENV/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Logs
+logs/
+*.log
+
+# Data
+data/
+datasets/
+*.csv
+*.tsv
+*.h5
+*.hdf5
+*.npz
+
+# Model weights / checkpoints
+checkpoints/
+models/
+*.pt
+*.pth
+*.ckpt
+*.h5
+
+# TensorBoard
+runs/
+events.out.tfevents.*
+
+# Output / results
+outputs/
+results/
+predictions/
+
+# Cache
+.cache/
+*.cache
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Python packaging
+build/
+dist/
+*.egg-info/
+
+# Environment variables
+.env
+
+# CUDA / temp
+*.cuo
+
+# Misc
+*.tmp
+*.bak
