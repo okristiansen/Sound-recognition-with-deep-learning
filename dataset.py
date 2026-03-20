@@ -17,7 +17,7 @@ class ESC50Dataset2(Dataset):
 
         self.spectrograms = []
         self.labels = []
-        print("Loading and converting audio files...")
+        print("Loading and converting audio files")
         for idx in range(len(self.data)):
             row = self.data.iloc[idx]
             file_path = os.path.join(self.audio_dir, row["filename"])

@@ -7,3 +7,4 @@ matplotlib
 sounddevice
 pandas
 scikit-learn
+gradio
