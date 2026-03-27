@@ -223,6 +223,88 @@ def clear_live(model_path):
     return make_live_state(model_path), "Listening...", ""
 
 
+# ── Tab 3: File captioning ────────────────────────────────────────────────────
+
+def plot_timeline(detections, total_duration):
+    """
+    detections: list of (time_sec, label, confidence)
+    Draws a horizontal timeline with labelled markers.
+    """
+    if not detections:
+        return None
+
+    times  = [d[0] for d in detections]
+    labels = [d[1] for d in detections]
+    confs  = [d[2] for d in detections]
+
+    unique_labels = sorted(set(labels))
+    label_to_y    = {l: i for i, l in enumerate(unique_labels)}
+    cmap = plt.get_cmap("tab20", len(unique_labels))
+
+    fig, ax = plt.subplots(figsize=(12, max(3, len(unique_labels) * 0.5 + 1)))
+
+    for t, lbl, conf in detections:
+        y = label_to_y[lbl]
+        ax.scatter(t, y, s=60 + conf * 80, color=cmap(y), alpha=0.8, zorder=3)
+
+    ax.set_yticks(range(len(unique_labels)))
+    ax.set_yticklabels(unique_labels, fontsize=8)
+    ax.set_xlabel("Time (seconds)")
+    ax.set_xlim(0, total_duration)
+    ax.set_title("Sound detections over time")
+    ax.grid(axis="x", linestyle="--", alpha=0.4)
+    plt.tight_layout()
+    return fig
+
+
+def caption_file(audio_path, model_path, window_sec, stride_sec):
+    if audio_path is None:
+        yield "No file uploaded.", "", None
+        return
+
+    available = get_available_models()
+    if not available:
+        yield "No .pth model files found. Train a model first.", "", None
+        return
+
+    if model_path not in available:
+        model_path = available[0]
+
+    model = load_model(model_path)
+    y, sr = librosa.load(audio_path, sr=22050)
+    total_duration = len(y) / sr
+    window_samples = int(window_sec * sr)
+    stride_samples = int(stride_sec * sr)
+
+    detections = []
+    log_lines  = []
+    start = 0
+
+    while start + window_samples <= len(y):
+        window = y[start : start + window_samples]
+        t_sec  = start / sr
+
+        probs   = infer_from_array(window, sr, model)
+        top_idx = int(np.argmax(probs))
+        label   = ESC50_LABELS[top_idx]
+        conf    = float(probs[top_idx]) * 100
+
+        detections.append((t_sec, label, conf))
+
+        # Only add to log when label changes
+        if not log_lines or log_lines[-1].split("  ")[1] != label:
+            m, s = divmod(int(t_sec), 60)
+            log_lines.append(f"[{m:02d}:{s:02d}]  {label}  ({conf:.0f}%)")
+
+        progress = f"Processing... {t_sec:.1f}s / {total_duration:.1f}s"
+        yield progress, "\n".join(log_lines), None
+
+        start += stride_samples
+
+    timeline_fig = plot_timeline(detections, total_duration)
+    yield f"Done — {len(detections)} windows analysed.", "\n".join(log_lines), timeline_fig
+
+
 # ── UI ────────────────────────────────────────────────────────────────────────
 
 def refresh_models():
@@ -314,6 +396,36 @@ with gr.Blocks(title="ESC-50 Sound Classifier") as demo:
                 fn=clear_live,
                 inputs=[live_model_dropdown],
                 outputs=[live_state, current_label, history_box],
+            )
+
+        # ── Tab 3 ──────────────────────────────────────────────────────────────
+        with gr.Tab("Caption Audio File"):
+            gr.Markdown(
+                "Upload a longer audio file (e.g. a movie trailer). "
+                "The model slides a window across it and logs every detected sound."
+            )
+            with gr.Row():
+                with gr.Column(scale=1):
+                    file_audio_input = gr.Audio(label="Audio file", type="filepath", sources=["upload"])
+                    file_model_dropdown = gr.Dropdown(
+                        label="Model checkpoint",
+                        choices=get_available_models(),
+                        value=get_available_models()[0] if get_available_models() else None,
+                        interactive=True,
+                    )
+                    file_window_slider = gr.Slider(label="Window size (seconds)", minimum=1, maximum=10, step=0.5, value=5)
+                    file_stride_slider = gr.Slider(label="Stride (seconds)", minimum=0.5, maximum=5, step=0.5, value=1)
+                    file_run_btn = gr.Button("Caption", variant="primary")
+                with gr.Column(scale=2):
+                    file_status = gr.Markdown()
+                    file_log = gr.Textbox(label="Detection log", lines=14, interactive=False)
+
+            file_timeline = gr.Plot(label="Timeline")
+
+            file_run_btn.click(
+                fn=caption_file,
+                inputs=[file_audio_input, file_model_dropdown, file_window_slider, file_stride_slider],
+                outputs=[file_status, file_log, file_timeline],
             )
 
 if __name__ == "__main__":
