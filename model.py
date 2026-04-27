@@ -6,6 +6,7 @@ import torchvision.models as models
 from torchvision.models import ResNet18_Weights
 import csv
 from datetime import datetime
+import numpy as np
 
 
 class SimpleCNN(nn.Module):
@@ -68,6 +69,73 @@ class ResNetAudio(nn.Module):
         return self.resnet(x)
 
 
+def _compute_confusion_matrix(y_true, y_pred, num_classes):
+    cm = np.zeros((num_classes, num_classes), dtype=np.int64)
+    for t, p in zip(y_true, y_pred):
+        cm[int(t), int(p)] += 1
+    return cm
+
+
+def _print_confusion_matrix(cm, model_name):
+    print(f"\n[{model_name}] Confusion matrix (rows=true, cols=pred):")
+    # CSV-like output that is easy to copy into a spreadsheet/notebook.
+    print(f"[{model_name}] COPY_MATRIX_CSV_START")
+    print("true\\pred," + ",".join(str(i) for i in range(cm.shape[1])))
+    for true_idx, row in enumerate(cm):
+        print(f"{true_idx}," + ",".join(str(int(v)) for v in row))
+    print(f"[{model_name}] COPY_MATRIX_CSV_END")
+
+    # Python-ready matrix literal + helper code for quick metric calculations.
+    print(f"\n[{model_name}] COPY_PYTHON_SNIPPET_START")
+    print("import numpy as np")
+    print("")
+    print("cm = np.array([")
+    for row in cm:
+        print("    [" + ", ".join(str(int(v)) for v in row) + "],")
+    print("], dtype=np.int64)")
+    print("")
+    print("# Basic metrics")
+    print("total = cm.sum()")
+    print("acc = np.trace(cm) / total if total else 0.0")
+    print("print(f'Accuracy: {acc:.4f} ({acc*100:.2f}%)')")
+    print("")
+    print("# One-vs-rest per-class TP/FP/FN/TN")
+    print("TP = np.diag(cm)")
+    print("FP = cm.sum(axis=0) - TP")
+    print("FN = cm.sum(axis=1) - TP")
+    print("TN = total - (TP + FP + FN)")
+    print("")
+    print("precision = np.divide(TP, TP + FP, out=np.zeros_like(TP, dtype=float), where=(TP + FP) != 0)")
+    print("recall    = np.divide(TP, TP + FN, out=np.zeros_like(TP, dtype=float), where=(TP + FN) != 0)")
+    print("f1        = np.divide(2 * precision * recall, precision + recall, out=np.zeros_like(precision), where=(precision + recall) != 0)")
+    print("")
+    print("print('class,TP,FP,FN,TN,precision,recall,f1')")
+    print("for i in range(cm.shape[0]):")
+    print("    print(f'{i},{TP[i]},{FP[i]},{FN[i]},{TN[i]},{precision[i]:.4f},{recall[i]:.4f},{f1[i]:.4f}')")
+    print("")
+    print("macro_p = precision.mean()")
+    print("macro_r = recall.mean()")
+    print("macro_f1 = f1.mean()")
+    print("print(f'Macro Precision: {macro_p:.4f}')")
+    print("print(f'Macro Recall:    {macro_r:.4f}')")
+    print("print(f'Macro F1:        {macro_f1:.4f}')")
+    print(f"[{model_name}] COPY_PYTHON_SNIPPET_END")
+
+    # Row-normalized confusion matrix (percent), useful for reports/plots.
+    row_sums = cm.sum(axis=1, keepdims=True)
+    cm_pct = np.divide(
+        cm * 100.0,
+        row_sums,
+        out=np.zeros_like(cm, dtype=float),
+        where=row_sums != 0,
+    )
+    print(f"\n[{model_name}] COPY_NORMALIZED_MATRIX_CSV_START")
+    print("true\\pred," + ",".join(str(i) for i in range(cm_pct.shape[1])))
+    for true_idx, row in enumerate(cm_pct):
+        print(f"{true_idx}," + ",".join(f"{v:.2f}" for v in row))
+    print(f"[{model_name}] COPY_NORMALIZED_MATRIX_CSV_END")
+
+
 def train_and_evaluate(model, train_loader, test_loader, num_epochs, lr, model_name, patience=7):
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -79,6 +147,7 @@ def train_and_evaluate(model, train_loader, test_loader, num_epochs, lr, model_n
     best_model_path = f"{model_name}_{timestamp}_best.pth"
 
     best_accuracy = 0.0
+    best_confusion_matrix = None
     epochs_without_improvement = 0
 
     with open(log_path, "w", newline="") as f:
@@ -102,6 +171,8 @@ def train_and_evaluate(model, train_loader, test_loader, num_epochs, lr, model_n
             model.eval()
             correct = 0
             total = 0
+            y_true_epoch = []
+            y_pred_epoch = []
             with torch.no_grad():
                 for spectrograms, labels in test_loader:
                     spectrograms = spectrograms.to(device)
@@ -110,6 +181,8 @@ def train_and_evaluate(model, train_loader, test_loader, num_epochs, lr, model_n
                     _, predicted = torch.max(outputs, 1)
                     total += labels.size(0)
                     correct += (predicted == labels).sum().item()
+                    y_true_epoch.extend(labels.cpu().numpy().tolist())
+                    y_pred_epoch.extend(predicted.cpu().numpy().tolist())
 
             accuracy = correct / total * 100
             avg_loss = running_loss / len(train_loader)
@@ -120,6 +193,10 @@ def train_and_evaluate(model, train_loader, test_loader, num_epochs, lr, model_n
             if accuracy > best_accuracy:
                 best_accuracy = accuracy
                 epochs_without_improvement = 0
+                num_classes = outputs.shape[1]
+                best_confusion_matrix = _compute_confusion_matrix(
+                    y_true_epoch, y_pred_epoch, num_classes
+                )
                 torch.save(model.state_dict(), best_model_path)
             else:
                 epochs_without_improvement += 1
@@ -129,6 +206,8 @@ def train_and_evaluate(model, train_loader, test_loader, num_epochs, lr, model_n
 
     print(f"[{model_name}] Best accuracy: {best_accuracy:.2f}% — saved to {best_model_path}")
     print(f"[{model_name}] Training log saved to {log_path}")
+    if best_confusion_matrix is not None:
+        _print_confusion_matrix(best_confusion_matrix, model_name)
     return best_accuracy
 
 
